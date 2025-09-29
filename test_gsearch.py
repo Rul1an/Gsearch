@@ -69,6 +69,48 @@ class TestGoogleScraper(unittest.TestCase):
         self.assertEqual(results, [])
         mock_get.assert_called_once()
 
+    @patch('gsearch.requests.Session.get')
+    def test_search_uses_proxies_and_fallback(self, mock_get):
+        """Search rotates proxies and falls back when a proxy fails."""
+        proxies = ['http://proxy1', 'http://proxy2']
+        scraper = GoogleScraper(delay=0, proxies=proxies)
+
+        mock_html = '''
+        <html>
+            <body>
+                <div class="g">
+                    <h3>Proxy Success</h3>
+                    <a href="https://example.com/success">Link</a>
+                    <span class="aCOpRe">Snippet</span>
+                </div>
+            </body>
+        </html>
+        '''
+
+        mock_response = Mock()
+        mock_response.text = mock_html
+        mock_response.raise_for_status.return_value = None
+
+        mock_get.side_effect = [
+            requests.RequestException("Proxy 1 failed"),
+            mock_response
+        ]
+
+        results = scraper.search("proxy test", 1)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(mock_get.call_count, 2)
+
+        first_call_kwargs = mock_get.call_args_list[0][1]
+        second_call_kwargs = mock_get.call_args_list[1][1]
+
+        expected_first_proxy = {'http': 'http://proxy1', 'https': 'http://proxy1'}
+        expected_second_proxy = {'http': 'http://proxy2', 'https': 'http://proxy2'}
+
+        self.assertEqual(first_call_kwargs.get('proxies'), expected_first_proxy)
+        self.assertEqual(second_call_kwargs.get('proxies'), expected_second_proxy)
+
+
 
 if __name__ == '__main__':
     unittest.main()

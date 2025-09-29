@@ -8,7 +8,8 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import urllib.parse
-from typing import List, Dict, Optional
+from itertools import cycle
+from typing import Iterator, List, Dict, Optional
 
 
 class GoogleScraper:
@@ -16,20 +17,33 @@ class GoogleScraper:
     A simple Google search scraper that extracts search results.
     """
     
-    def __init__(self, delay: float = 1.0):
+    def __init__(self, delay: float = 1.0, proxies: Optional[List[str]] = None):
         """
         Initialize the Google scraper.
-        
+
         Args:
             delay: Delay between requests in seconds (default: 1.0)
+            proxies: Optional list of proxy URLs to rotate between.
         """
         self.delay = delay
         self.session = requests.Session()
+        cleaned_proxies = [proxy for proxy in (proxies or []) if proxy]
+        self._proxies = cleaned_proxies
+        self._proxy_cycle: Optional[Iterator[str]] = cycle(cleaned_proxies) if cleaned_proxies else None
         # Set a user agent to avoid being blocked
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
-    
+
+    def _get_next_proxy(self) -> Optional[str]:
+        """Retrieve the next proxy from the cycle if available."""
+        if self._proxy_cycle is None:
+            return None
+        try:
+            return next(self._proxy_cycle)
+        except StopIteration:
+            return None
+
     def search(self, query: str, num_results: int = 10) -> List[Dict[str, str]]:
         """
         Perform a Google search and return the results.
@@ -42,39 +56,63 @@ class GoogleScraper:
             List of dictionaries containing title, link, and snippet for each result
         """
         results = []
-        
+
         # Encode the search query
         encoded_query = urllib.parse.quote_plus(query)
-        
+
         # Construct the Google search URL
         url = f"https://www.google.com/search?q={encoded_query}&num={num_results}"
-        
+
+        max_attempts = len(self._proxies) if self._proxies else 1
+        attempts = 0
+        response = None
+
+        while attempts < max_attempts:
+            proxy = self._get_next_proxy() if self._proxies else None
+            proxies_arg = {'http': proxy, 'https': proxy} if proxy else None
+            try:
+                if proxies_arg:
+                    response = self.session.get(url, proxies=proxies_arg)
+                else:
+                    response = self.session.get(url)
+                response.raise_for_status()
+                break
+            except requests.RequestException as e:
+                attempts += 1
+                if proxies_arg:
+                    print(f"Proxy {proxy} failed with error: {e}")
+                    if attempts >= max_attempts:
+                        print("All proxies failed.")
+                        return results
+                else:
+                    print(f"Error making request: {e}")
+                    return results
+
+        if response is None:
+            return results
+
         try:
-            # Make the request
-            response = self.session.get(url)
-            response.raise_for_status()
-            
             # Parse the HTML
             soup = BeautifulSoup(response.text, 'html.parser')
-            
+
             # Find search result containers
             search_results = soup.find_all('div', class_='g')
-            
+
             for result in search_results:
                 # Extract title
                 title_element = result.find('h3')
                 title = title_element.get_text() if title_element else "No title"
-                
+
                 # Extract link
                 link_element = result.find('a')
                 link = link_element.get('href') if link_element else "No link"
-                
+
                 # Extract snippet/description
                 snippet_element = result.find('span', class_=['aCOpRe', 'st'])
                 if not snippet_element:
                     snippet_element = result.find('div', class_=['VwiC3b', 'yXK7lf'])
                 snippet = snippet_element.get_text() if snippet_element else "No description"
-                
+
                 # Only add if we have at least a title and link
                 if title != "No title" and link != "No link":
                     results.append({
@@ -82,19 +120,17 @@ class GoogleScraper:
                         'link': link,
                         'snippet': snippet
                     })
-                
+
                 # Stop if we have enough results
                 if len(results) >= num_results:
                     break
-            
+
             # Add delay to be respectful
             time.sleep(self.delay)
-            
-        except requests.RequestException as e:
-            print(f"Error making request: {e}")
+
         except Exception as e:
             print(f"Error parsing results: {e}")
-        
+
         return results
     
     def search_and_print(self, query: str, num_results: int = 10) -> None:
