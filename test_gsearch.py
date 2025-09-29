@@ -5,6 +5,9 @@ Simple tests for the Google scraper functionality.
 
 import unittest
 from unittest.mock import Mock, patch
+
+import requests
+
 from gsearch import GoogleScraper
 
 
@@ -56,11 +59,15 @@ class TestGoogleScraper(unittest.TestCase):
         self.assertEqual(results[0]['link'], 'https://example.com/1')
         self.assertEqual(results[0]['snippet'], 'Test snippet 1')
     
-    def test_search_empty_results(self):
-        """Test search with no network access returns empty list."""
-        # This will fail due to network restrictions, which is expected
+    @patch('gsearch.requests.Session.get')
+    def test_search_empty_results(self, mock_get):
+        """Search returns empty list when the network request fails."""
+        mock_get.side_effect = requests.RequestException("Network unavailable")
+
         results = self.scraper.search("test query", 5)
-        self.assertEqual(len(results), 0)
+
+        self.assertEqual(results, [])
+        mock_get.assert_called_once()
 
 
 if __name__ == '__main__':
