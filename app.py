@@ -31,12 +31,12 @@ def health_check() -> dict:
 
 @app.get("/search", response_model=SearchResponse, summary="Perform a Google search")
 def search(
-    query: str = Query(..., min_length=1, description="De zoekterm om naar te zoeken."),
+    query: str = Query(..., min_length=1, description="The search term to query for"),
     num_results: int = Query(
         10,
         ge=1,
         le=20,
-        description="Aantal resultaten om terug te geven (1-20).",
+        description="Number of results to return (1-20)",
     ),
 ) -> SearchResponse:
     """Run the scraper for the provided query and return structured results."""
