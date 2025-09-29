@@ -137,8 +137,11 @@ class TestGoogleScraper(unittest.TestCase):
         self.assertEqual(mock_get.call_count, 2)
 
     @patch("gsearch.requests.Session.get")
-    def test_search_captcha_detected_even_if_raise_for_status_would_fail(self, mock_get):
-        """CAPTCHA detection should occur even when raise_for_status would raise HTTPError."""
+    def test_search_captcha_detection_retries_then_raises(self, mock_get):
+        """A CAPTCHA response should trigger retries and ultimately raise an error."""
+        proxies = ["http://proxy1", "http://proxy2"]
+        scraper = GoogleScraper(delay=0, proxies=proxies)
+
         mock_response = Mock()
         mock_response.text = "<html>Our systems have detected unusual traffic from your computer network.</html>"
         mock_response.status_code = 503
@@ -146,11 +149,10 @@ class TestGoogleScraper(unittest.TestCase):
         mock_get.return_value = mock_response
 
         with self.assertRaises(CaptchaDetectedError):
-            self.scraper.search("test query", 1)
+            scraper.search("test query", 1)
 
-        # In the merged logic, raise_for_status might not be called if CAPTCHA is detected first
-        # So we assert it's not called.
-        # mock_response.raise_for_status.assert_not_called()
+        self.assertEqual(mock_get.call_count, len(proxies))
+        mock_response.raise_for_status.assert_not_called()
 
 
 @pytest.fixture

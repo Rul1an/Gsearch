@@ -92,10 +92,18 @@ class GoogleScraper:
                 
                 html = response.text
                 if self._is_captcha_page(html):
-                    raise CaptchaDetectedError(
-                        "Google returned a CAPTCHA challenge; automated access was blocked."
-                    )
-                
+                    attempts += 1
+                    if attempts >= max_attempts:
+                        raise CaptchaDetectedError(
+                            "Google returned a CAPTCHA challenge; automated access was blocked."
+                        )
+
+                    if proxies_arg:
+                        print(f"Proxy {proxy} encountered a CAPTCHA challenge. Retrying...")
+                    else:
+                        print("CAPTCHA challenge detected. Retrying...")
+                    continue
+
                 response.raise_for_status()
                 break # Success
             except CaptchaDetectedError:
