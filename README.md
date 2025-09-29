@@ -19,10 +19,17 @@ git clone https://github.com/Rul1an/Gsearch.git
 cd Gsearch
 ```
 
-2. Installeer de vereiste dependencies:
+2. Installeer de vereiste dependencies (alleen pure-Python pakketten, dus geen native build stap nodig):
 ```bash
 pip install -r requirements.txt
 ```
+
+3. Start de API lokaal met Uvicorn:
+```bash
+uvicorn app:app --reload --host 0.0.0.0 --port 8000
+```
+
+De interactieve documentatie is beschikbaar op `http://localhost:8000/docs`.
 
 ## Gebruik
 
@@ -56,6 +63,22 @@ scraper.search_and_print("WBSO voorwaarden", num_results=5)
 
 ```bash
 python3 example.py
+```
+
+### HTTP API gebruiken
+
+Vraag resultaten op via de FastAPI-endpoints. Bijvoorbeeld:
+
+```bash
+curl "http://localhost:8000/search?query=WBSO%20subsidie&num_results=5"
+```
+
+Dit retourneert een JSON-payload met dezelfde structuur als de Python-interface.
+
+Een eenvoudige healthcheck is beschikbaar via:
+
+```bash
+curl http://localhost:8000/health
 ```
 
 ## API Referentie
@@ -108,8 +131,26 @@ rapportage = scraper.search("WBSO rapportage verplichtingen", 3)
 ## Tests uitvoeren
 
 ```bash
-python3 test_gsearch.py
+pytest -q
 ```
+
+## Deployen op Render.com
+
+Maak een nieuwe **Web Service** aan en gebruik de volgende commando's:
+
+- **Build Command**
+
+  ```bash
+  pip install -r requirements.txt
+  ```
+
+- **Start Command**
+
+  ```bash
+  gunicorn app:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT}
+  ```
+
+Render injecteert automatisch de `PORT`-omgeving variabele. Zorg ervoor dat je service als runtime "Python 3" gebruikt.
 
 ## Structuur
 
@@ -126,7 +167,6 @@ Gsearch/
 
 - `requests` - Voor HTTP requests
 - `beautifulsoup4` - Voor HTML parsing
-- `lxml` - XML/HTML parser backend
 
 ## Licentie
 

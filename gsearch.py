@@ -9,7 +9,13 @@ from bs4 import BeautifulSoup
 import time
 import urllib.parse
 from itertools import cycle
-from typing import Iterator, List, Dict, Optional
+from typing import Dict, Iterator, List, Optional, Sequence
+
+
+class CaptchaDetectedError(Exception):
+    """Raised when Google responds with a CAPTCHA challenge."""
+
+    pass
 
 
 class GoogleScraper:
@@ -17,23 +23,33 @@ class GoogleScraper:
     A simple Google search scraper that extracts search results.
     """
     
-    def __init__(self, delay: float = 1.0, proxies: Optional[List[str]] = None):
+    def __init__(self, delay: float = 1.0, proxies: Optional[List[str]] = None, user_agents: Optional[Sequence[str]] = None):
         """
         Initialize the Google scraper.
 
         Args:
             delay: Delay between requests in seconds (default: 1.0)
             proxies: Optional list of proxy URLs to rotate between.
+            user_agents: Optional sequence of user-agent strings to rotate per request.
         """
         self.delay = delay
         self.session = requests.Session()
+        
+        # Proxy setup
         cleaned_proxies = [proxy for proxy in (proxies or []) if proxy]
         self._proxies = cleaned_proxies
         self._proxy_cycle: Optional[Iterator[str]] = cycle(cleaned_proxies) if cleaned_proxies else None
-        # Set a user agent to avoid being blocked
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        })
+
+        # User-agent setup
+        self.default_user_agent = (
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        )
+        self.session.headers.update({'User-Agent': self.default_user_agent})
+
+        filtered_user_agents = [ua for ua in user_agents or [] if ua and ua.strip()]
+        self._user_agent_iter: Optional[Iterator[str]] = None
+        if filtered_user_agents:
+            self._user_agent_iter = cycle(filtered_user_agents)
 
     def _get_next_proxy(self) -> Optional[str]:
         """Retrieve the next proxy from the cycle if available."""
@@ -67,16 +83,26 @@ class GoogleScraper:
         attempts = 0
         response = None
 
+        # Rotate user-agent if available
+        if self._user_agent_iter is not None:
+            self.session.headers['User-Agent'] = next(self._user_agent_iter)
+
         while attempts < max_attempts:
             proxy = self._get_next_proxy() if self._proxies else None
             proxies_arg = {'http': proxy, 'https': proxy} if proxy else None
             try:
-                if proxies_arg:
-                    response = self.session.get(url, proxies=proxies_arg)
-                else:
-                    response = self.session.get(url)
+                response = self.session.get(url, proxies=proxies_arg)
+                
+                html = response.text
+                if self._is_captcha_page(html):
+                    raise CaptchaDetectedError(
+                        "Google returned a CAPTCHA challenge; automated access was blocked."
+                    )
+                
                 response.raise_for_status()
-                break
+                break # Success
+            except CaptchaDetectedError:
+                raise # Propagate CAPTCHA error immediately
             except requests.RequestException as e:
                 attempts += 1
                 if proxies_arg:
@@ -94,7 +120,7 @@ class GoogleScraper:
         try:
             # Parse the HTML
             soup = BeautifulSoup(response.text, 'html.parser')
-
+            
             # Find search result containers
             search_results = soup.find_all('div', class_='g')
 
@@ -127,7 +153,7 @@ class GoogleScraper:
 
             # Add delay to be respectful
             time.sleep(self.delay)
-
+            
         except Exception as e:
             print(f"Error parsing results: {e}")
 
@@ -155,6 +181,21 @@ class GoogleScraper:
             print(f"   Link: {result['link']}")
             print(f"   Snippet: {result['snippet'][:150]}...")
             print()
+
+    def _is_captcha_page(self, html: Optional[str]) -> bool:
+        """Return True when the HTML content contains common CAPTCHA markers."""
+        if not html:
+            return False
+
+        lower_html = html.lower()
+        captcha_indicators = [
+            "our systems have detected unusual traffic",
+            "to continue, please type the characters",
+            "verify that you are not a robot",
+            "detected unusual traffic from your computer network",
+        ]
+
+        return any(indicator in lower_html for indicator in captcha_indicators)
 
 
 def main():
