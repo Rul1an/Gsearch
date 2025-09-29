@@ -8,7 +8,8 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import urllib.parse
-from typing import List, Dict, Optional
+from itertools import cycle
+from typing import Dict, Iterator, List, Optional, Sequence
 
 
 class CaptchaDetectedError(Exception):
@@ -22,19 +23,26 @@ class GoogleScraper:
     A simple Google search scraper that extracts search results.
     """
     
-    def __init__(self, delay: float = 1.0):
+    def __init__(self, delay: float = 1.0, user_agents: Optional[Sequence[str]] = None):
         """
         Initialize the Google scraper.
-        
+
         Args:
             delay: Delay between requests in seconds (default: 1.0)
+            user_agents: Optional sequence of user-agent strings to rotate per request.
         """
         self.delay = delay
         self.session = requests.Session()
         # Set a user agent to avoid being blocked
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        })
+        self.default_user_agent = (
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        )
+        self.session.headers.update({'User-Agent': self.default_user_agent})
+
+        filtered_user_agents = [ua for ua in user_agents or [] if ua and ua.strip()]
+        self._user_agent_iter: Optional[Iterator[str]] = None
+        if filtered_user_agents:
+            self._user_agent_iter = cycle(filtered_user_agents)
     
     def search(self, query: str, num_results: int = 10) -> List[Dict[str, str]]:
         """
@@ -57,6 +65,8 @@ class GoogleScraper:
         
         try:
             # Make the request
+            if self._user_agent_iter is not None:
+                self.session.headers['User-Agent'] = next(self._user_agent_iter)
             response = self.session.get(url)
             html = response.text
 
