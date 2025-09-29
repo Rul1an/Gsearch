@@ -71,8 +71,8 @@ class TestGoogleScraper(unittest.TestCase):
         mock_get.assert_called_once()
 
     @patch("gsearch.requests.Session.get")
-    def test_search_captcha_detected_before_http_error(self, mock_get):
-        """CAPTCHA detection should occur even when the response is non-2xx."""
+    def test_search_captcha_detected_even_if_raise_for_status_would_fail(self, mock_get):
+        """CAPTCHA detection should occur even when raise_for_status would raise HTTPError."""
         mock_response = Mock()
         mock_response.text = "<html>Our systems have detected unusual traffic from your computer network.</html>"
         mock_response.status_code = 503
