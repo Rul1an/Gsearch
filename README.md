@@ -19,7 +19,7 @@ git clone https://github.com/Rul1an/Gsearch.git
 cd Gsearch
 ```
 
-2. Installeer de vereiste dependencies:
+2. Installeer de vereiste dependencies (alleen pure-Python pakketten, dus geen native build stap nodig):
 ```bash
 pip install -r requirements.txt
 ```
@@ -167,7 +167,6 @@ Gsearch/
 
 - `requests` - Voor HTTP requests
 - `beautifulsoup4` - Voor HTML parsing
-- `lxml` - XML/HTML parser backend
 
 ## Licentie
 
