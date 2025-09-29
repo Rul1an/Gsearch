@@ -55,10 +55,7 @@ class GoogleScraper:
         """Retrieve the next proxy from the cycle if available."""
         if self._proxy_cycle is None:
             return None
-        try:
-            return next(self._proxy_cycle)
-        except StopIteration:
-            return None
+        return next(self._proxy_cycle)
 
     def search(self, query: str, num_results: int = 10) -> List[Dict[str, str]]:
         """
