@@ -11,6 +11,12 @@ import urllib.parse
 from typing import List, Dict, Optional
 
 
+class CaptchaDetectedError(Exception):
+    """Raised when Google responds with a CAPTCHA challenge."""
+
+    pass
+
+
 class GoogleScraper:
     """
     A simple Google search scraper that extracts search results.
@@ -52,10 +58,18 @@ class GoogleScraper:
         try:
             # Make the request
             response = self.session.get(url)
+            html = response.text
+
+            # Detect CAPTCHA responses before HTTP errors are raised
+            if self._is_captcha_page(html):
+                raise CaptchaDetectedError(
+                    "Google returned a CAPTCHA challenge; automated access was blocked."
+                )
+
             response.raise_for_status()
-            
+
             # Parse the HTML
-            soup = BeautifulSoup(response.text, 'html.parser')
+            soup = BeautifulSoup(html, 'html.parser')
             
             # Find search result containers
             search_results = soup.find_all('div', class_='g')
@@ -90,6 +104,11 @@ class GoogleScraper:
             # Add delay to be respectful
             time.sleep(self.delay)
             
+        except CaptchaDetectedError:
+            raise
+        except requests.HTTPError:
+            # Propagate HTTP errors when no CAPTCHA indicators were found
+            raise
         except requests.RequestException as e:
             print(f"Error making request: {e}")
         except Exception as e:
@@ -119,6 +138,21 @@ class GoogleScraper:
             print(f"   Link: {result['link']}")
             print(f"   Snippet: {result['snippet'][:150]}...")
             print()
+
+    def _is_captcha_page(self, html: Optional[str]) -> bool:
+        """Return True when the HTML content contains common CAPTCHA markers."""
+        if not html:
+            return False
+
+        lower_html = html.lower()
+        captcha_indicators = [
+            "our systems have detected unusual traffic",
+            "to continue, please type the characters",
+            "verify that you are not a robot",
+            "detected unusual traffic from your computer network",
+        ]
+
+        return any(indicator in lower_html for indicator in captcha_indicators)
 
 
 def main():
