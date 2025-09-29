@@ -112,7 +112,7 @@ class GoogleScraper:
             raise
         except requests.HTTPError:
             # Propagate HTTP errors when no CAPTCHA indicators were found
-            if captcha_detected or (html and self._is_captcha_page(html)):
+            if captcha_detected:
                 raise CaptchaDetectedError(
                     "Google returned a CAPTCHA challenge; automated access was blocked."
                 )
