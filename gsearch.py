@@ -55,6 +55,8 @@ class GoogleScraper:
         # Construct the Google search URL
         url = f"https://www.google.com/search?q={encoded_query}&num={num_results}"
         
+        html: Optional[str] = None
+
         try:
             # Make the request
             response = self.session.get(url)
@@ -108,6 +110,10 @@ class GoogleScraper:
             raise
         except requests.HTTPError:
             # Propagate HTTP errors when no CAPTCHA indicators were found
+            if html and self._is_captcha_page(html):
+                raise CaptchaDetectedError(
+                    "Google returned a CAPTCHA challenge; automated access was blocked."
+                )
             raise
         except requests.RequestException as e:
             print(f"Error making request: {e}")
