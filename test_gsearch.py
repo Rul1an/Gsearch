@@ -155,27 +155,37 @@ class TestGoogleScraper(unittest.TestCase):
         mock_response.raise_for_status.assert_not_called()
 
 
-@pytest.fixture
-def consent_page_html() -> str:
-    """HTML snippet representing Google's consent/recaptcha interstitial."""
-    return """
-    <html>
-        <head><title>Before you continue to Google Search</title></head>
-        <body>
-            <form action="https://consent.google.com/save">
-                <h1>Before you continue to Google Search</h1>
-                <div class="g-recaptcha" data-sitekey="test"></div>
-            </form>
-        </body>
-    </html>
-    """
-
-
-def test_search_consent_page_triggers_captcha(consent_page_html: str):
+@pytest.mark.parametrize(
+    "html_snippet",
+    [
+        """
+        <html>
+            <head><title>Before you continue to Google Search</title></head>
+            <body>
+                <form action="https://consent.google.com/save">
+                    <h1>Before you continue to Google Search</h1>
+                    <div class="g-recaptcha" data-sitekey="test"></div>
+                </form>
+            </body>
+        </html>
+        """,
+        """
+        <html lang="nl">
+            <head><title>Voordat je verdergaat naar Google Zoeken</title></head>
+            <body>
+                <div>Voordat je verdergaat naar Google Zoeken</div>
+                <p>Controleer of je geen robot bent.</p>
+                <script src="https://www.google.com/recaptcha/api.js"></script>
+            </body>
+        </html>
+        """,
+    ],
+)
+def test_search_consent_page_triggers_captcha(html_snippet: str):
     """The scraper should surface consent flows as CAPTCHA detections."""
     scraper = GoogleScraper(delay=0)
     mock_response = Mock()
-    mock_response.text = consent_page_html
+    mock_response.text = html_snippet
     mock_response.raise_for_status.return_value = None
 
     with patch("gsearch.requests.Session.get", return_value=mock_response):
@@ -210,6 +220,16 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(payload["query"], "test")
         self.assertEqual(len(payload["results"]), 1)
         mock_search.assert_called_once_with("test", num_results=1)
+
+    @patch.object(api_app.scraper, "search", side_effect=CaptchaDetectedError("Blocked"))
+    def test_search_endpoint_handles_captcha(self, mock_search):
+        response = asyncio.run(self.client.get("/search", params={"query": "captcha", "num_results": 1}))
+        self.assertEqual(response.status_code, 503)
+        payload = response.json()
+        self.assertEqual(payload["query"], "captcha")
+        self.assertEqual(payload["error"], "captcha_detected")
+        self.assertIn("Blocked", payload["detail"])
+        mock_search.assert_called_once_with("captcha", num_results=1)
 
 
 if __name__ == "__main__":
