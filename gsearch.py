@@ -92,10 +92,18 @@ class GoogleScraper:
                 
                 html = response.text
                 if self._is_captcha_page(html):
-                    raise CaptchaDetectedError(
-                        "Google returned a CAPTCHA challenge; automated access was blocked."
-                    )
-                
+                    attempts += 1
+                    if attempts >= max_attempts:
+                        raise CaptchaDetectedError(
+                            "Google returned a CAPTCHA challenge; automated access was blocked."
+                        )
+
+                    if proxies_arg:
+                        print(f"Proxy {proxy} encountered a CAPTCHA challenge. Retrying...")
+                    else:
+                        print("CAPTCHA challenge detected. Retrying...")
+                    continue
+
                 response.raise_for_status()
                 break # Success
             except CaptchaDetectedError:
@@ -194,7 +202,12 @@ class GoogleScraper:
 
         consent_indicators = [
             "consent.google.com",
+            "consent.google.com/save",
             "before you continue to google search",
+            "voordat u doorgaat naar google zoeken",
+            "voordat je verdergaat naar google zoeken",
+            "avant de continuer vers la recherche google",
+            "bevor sie mit der google-suche fortfahren",
         ]
 
         recaptcha_markers = [
@@ -203,7 +216,17 @@ class GoogleScraper:
             "recaptcha/api.js",
         ]
 
-        indicator_sets = (captcha_indicators, consent_indicators, recaptcha_markers)
+        structural_indicators = [
+            "<form action=\"https://consent.google.com/save\"",
+            "<form action=\"https://www.google.com/sorry/index\"",
+        ]
+
+        indicator_sets = (
+            captcha_indicators,
+            consent_indicators,
+            recaptcha_markers,
+            structural_indicators,
+        )
         return any(
             any(indicator in lower_html for indicator in indicator_set)
             for indicator_set in indicator_sets
