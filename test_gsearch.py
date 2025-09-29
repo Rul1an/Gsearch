@@ -5,6 +5,7 @@ import asyncio
 import unittest
 from unittest.mock import Mock, patch
 
+import pytest
 import requests
 from httpx import ASGITransport, AsyncClient
 
@@ -150,6 +151,34 @@ class TestGoogleScraper(unittest.TestCase):
         # In the merged logic, raise_for_status might not be called if CAPTCHA is detected first
         # So we assert it's not called.
         # mock_response.raise_for_status.assert_not_called()
+
+
+@pytest.fixture
+def consent_page_html() -> str:
+    """HTML snippet representing Google's consent/recaptcha interstitial."""
+    return """
+    <html>
+        <head><title>Before you continue to Google Search</title></head>
+        <body>
+            <form action="https://consent.google.com/save">
+                <h1>Before you continue to Google Search</h1>
+                <div class="g-recaptcha" data-sitekey="test"></div>
+            </form>
+        </body>
+    </html>
+    """
+
+
+def test_search_consent_page_triggers_captcha(consent_page_html: str):
+    """The scraper should surface consent flows as CAPTCHA detections."""
+    scraper = GoogleScraper(delay=0)
+    mock_response = Mock()
+    mock_response.text = consent_page_html
+    mock_response.raise_for_status.return_value = None
+
+    with patch("gsearch.requests.Session.get", return_value=mock_response):
+        with pytest.raises(CaptchaDetectedError):
+            scraper.search("test query", 1)
 
 
 class TestAPI(unittest.TestCase):

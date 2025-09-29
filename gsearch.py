@@ -183,7 +183,7 @@ class GoogleScraper:
             print()
 
     def _is_captcha_page(self, html: Optional[str]) -> bool:
-        """Return True when the HTML content contains common CAPTCHA markers."""
+        """Return True when the HTML content contains CAPTCHA or consent markers."""
         if not html:
             return False
 
@@ -195,7 +195,22 @@ class GoogleScraper:
             "detected unusual traffic from your computer network",
         ]
 
-        return any(indicator in lower_html for indicator in captcha_indicators)
+        consent_indicators = [
+            "consent.google.com",
+            "before you continue to google search",
+        ]
+
+        recaptcha_markers = [
+            "g-recaptcha",
+            "grecaptcha",
+            "recaptcha/api.js",
+        ]
+
+        indicator_sets = (captcha_indicators, consent_indicators, recaptcha_markers)
+        return any(
+            any(indicator in lower_html for indicator in indicator_set)
+            for indicator_set in indicator_sets
+        )
 
 
 def main():
