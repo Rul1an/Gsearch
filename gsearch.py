@@ -8,7 +8,8 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import urllib.parse
-from typing import List, Dict, Optional
+from itertools import cycle
+from typing import Dict, Iterator, List, Optional, Sequence
 
 
 class CaptchaDetectedError(Exception):
@@ -22,20 +23,40 @@ class GoogleScraper:
     A simple Google search scraper that extracts search results.
     """
     
-    def __init__(self, delay: float = 1.0):
+    def __init__(self, delay: float = 1.0, proxies: Optional[List[str]] = None, user_agents: Optional[Sequence[str]] = None):
         """
         Initialize the Google scraper.
-        
+
         Args:
             delay: Delay between requests in seconds (default: 1.0)
+            proxies: Optional list of proxy URLs to rotate between.
+            user_agents: Optional sequence of user-agent strings to rotate per request.
         """
         self.delay = delay
         self.session = requests.Session()
-        # Set a user agent to avoid being blocked
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        })
-    
+        
+        # Proxy setup
+        cleaned_proxies = [proxy for proxy in (proxies or []) if proxy]
+        self._proxies = cleaned_proxies
+        self._proxy_cycle: Optional[Iterator[str]] = cycle(cleaned_proxies) if cleaned_proxies else None
+
+        # User-agent setup
+        self.default_user_agent = (
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        )
+        self.session.headers.update({'User-Agent': self.default_user_agent})
+
+        filtered_user_agents = [ua for ua in user_agents or [] if ua and ua.strip()]
+        self._user_agent_iter: Optional[Iterator[str]] = None
+        if filtered_user_agents:
+            self._user_agent_iter = cycle(filtered_user_agents)
+
+    def _get_next_proxy(self) -> Optional[str]:
+        """Retrieve the next proxy from the cycle if available."""
+        if self._proxy_cycle is None:
+            return None
+        return next(self._proxy_cycle)
+
     def search(self, query: str, num_results: int = 10) -> List[Dict[str, str]]:
         """
         Perform a Google search and return the results.
@@ -48,51 +69,73 @@ class GoogleScraper:
             List of dictionaries containing title, link, and snippet for each result
         """
         results = []
-        
+
         # Encode the search query
         encoded_query = urllib.parse.quote_plus(query)
-        
+
         # Construct the Google search URL
         url = f"https://www.google.com/search?q={encoded_query}&num={num_results}"
-        
-        html: Optional[str] = None
-        captcha_detected = False
+
+        max_attempts = len(self._proxies) if self._proxies else 1
+        attempts = 0
+        response = None
+
+        # Rotate user-agent if available
+        if self._user_agent_iter is not None:
+            self.session.headers['User-Agent'] = next(self._user_agent_iter)
+
+        while attempts < max_attempts:
+            proxy = self._get_next_proxy() if self._proxies else None
+            proxies_arg = {'http': proxy, 'https': proxy} if proxy else None
+            try:
+                response = self.session.get(url, proxies=proxies_arg)
+                
+                html = response.text
+                if self._is_captcha_page(html):
+                    raise CaptchaDetectedError(
+                        "Google returned a CAPTCHA challenge; automated access was blocked."
+                    )
+                
+                response.raise_for_status()
+                break # Success
+            except CaptchaDetectedError:
+                raise # Propagate CAPTCHA error immediately
+            except requests.RequestException as e:
+                attempts += 1
+                if proxies_arg:
+                    print(f"Proxy {proxy} failed with error: {e}")
+                    if attempts >= max_attempts:
+                        print("All proxies failed.")
+                        return results
+                else:
+                    print(f"Error making request: {e}")
+                    return results
+
+        if response is None:
+            return results
 
         try:
-            # Make the request
-            response = self.session.get(url)
-            html = response.text
-
-            # Detect CAPTCHA responses before HTTP errors are raised
-            captcha_detected = self._is_captcha_page(html)
-            if captcha_detected:
-                raise CaptchaDetectedError(
-                    "Google returned a CAPTCHA challenge; automated access was blocked."
-                )
-
-            response.raise_for_status()
-
             # Parse the HTML
-            soup = BeautifulSoup(html, 'html.parser')
+            soup = BeautifulSoup(response.text, 'html.parser')
             
             # Find search result containers
             search_results = soup.find_all('div', class_='g')
-            
+
             for result in search_results:
                 # Extract title
                 title_element = result.find('h3')
                 title = title_element.get_text() if title_element else "No title"
-                
+
                 # Extract link
                 link_element = result.find('a')
                 link = link_element.get('href') if link_element else "No link"
-                
+
                 # Extract snippet/description
                 snippet_element = result.find('span', class_=['aCOpRe', 'st'])
                 if not snippet_element:
                     snippet_element = result.find('div', class_=['VwiC3b', 'yXK7lf'])
                 snippet = snippet_element.get_text() if snippet_element else "No description"
-                
+
                 # Only add if we have at least a title and link
                 if title != "No title" and link != "No link":
                     results.append({
@@ -100,28 +143,17 @@ class GoogleScraper:
                         'link': link,
                         'snippet': snippet
                     })
-                
+
                 # Stop if we have enough results
                 if len(results) >= num_results:
                     break
-            
+
             # Add delay to be respectful
             time.sleep(self.delay)
             
-        except CaptchaDetectedError:
-            raise
-        except requests.HTTPError:
-            # Propagate HTTP errors when no CAPTCHA indicators were found
-            if captcha_detected or (html and self._is_captcha_page(html)):
-                raise CaptchaDetectedError(
-                    "Google returned a CAPTCHA challenge; automated access was blocked."
-                )
-            raise
-        except requests.RequestException as e:
-            print(f"Error making request: {e}")
         except Exception as e:
             print(f"Error parsing results: {e}")
-        
+
         return results
     
     def search_and_print(self, query: str, num_results: int = 10) -> None:
