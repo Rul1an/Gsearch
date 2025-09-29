@@ -69,6 +69,30 @@ class TestGoogleScraper(unittest.TestCase):
         self.assertEqual(results, [])
         mock_get.assert_called_once()
 
+    def test_user_agent_rotation(self):
+        """Consecutive searches should use different user agents when provided."""
+        user_agents = [
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+        ]
+        scraper = GoogleScraper(delay=0, user_agents=user_agents)
+
+        mock_response = Mock()
+        mock_response.text = "<html></html>"
+        mock_response.raise_for_status.return_value = None
+
+        with patch.object(scraper.session, 'get', return_value=mock_response) as mock_get:
+            scraper.search("test query", 1)
+            first_user_agent = scraper.session.headers.get('User-Agent')
+
+            scraper.search("test query", 1)
+            second_user_agent = scraper.session.headers.get('User-Agent')
+
+        self.assertNotEqual(first_user_agent, second_user_agent)
+        self.assertIn(first_user_agent, user_agents)
+        self.assertIn(second_user_agent, user_agents)
+        self.assertEqual(mock_get.call_count, 2)
+
 
 if __name__ == '__main__':
     unittest.main()
