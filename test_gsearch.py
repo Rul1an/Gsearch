@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 import requests
 from httpx import ASGITransport, AsyncClient
 
-from gsearch import GoogleScraper
+from gsearch import GoogleScraper, CaptchaDetectedError
 import app as api_app
 
 
@@ -69,6 +69,20 @@ class TestGoogleScraper(unittest.TestCase):
 
         self.assertEqual(results, [])
         mock_get.assert_called_once()
+
+    @patch("gsearch.requests.Session.get")
+    def test_search_captcha_detected_before_http_error(self, mock_get):
+        """CAPTCHA detection should occur even when the response is non-2xx."""
+        mock_response = Mock()
+        mock_response.text = "<html>Our systems have detected unusual traffic from your computer network.</html>"
+        mock_response.status_code = 503
+        mock_response.raise_for_status.side_effect = requests.HTTPError("Service Unavailable")
+        mock_get.return_value = mock_response
+
+        with self.assertRaises(CaptchaDetectedError):
+            self.scraper.search("test query", 1)
+
+        mock_response.raise_for_status.assert_not_called()
 
 
 class TestAPI(unittest.TestCase):
