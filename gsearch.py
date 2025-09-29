@@ -39,7 +39,7 @@ class GoogleScraper:
         )
         self.session.headers.update({'User-Agent': self.default_user_agent})
 
-        filtered_user_agents = [ua for ua in user_agents or [] if ua]
+        filtered_user_agents = [ua for ua in user_agents or [] if ua and ua.strip()]
         self._user_agent_iter: Optional[Iterator[str]] = None
         if filtered_user_agents:
             self._user_agent_iter = cycle(filtered_user_agents)
