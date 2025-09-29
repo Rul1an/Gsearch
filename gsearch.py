@@ -85,7 +85,10 @@ class GoogleScraper:
             self.session.headers['User-Agent'] = next(self._user_agent_iter)
 
         while attempts < max_attempts:
-            proxy = self._get_next_proxy() if self._proxies else None
+            if self._proxies:
+                proxy = self._get_next_proxy()
+            else:
+                proxy = None
             proxies_arg = {'http': proxy, 'https': proxy} if proxy else None
             try:
                 response = self.session.get(url, proxies=proxies_arg)
