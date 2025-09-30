@@ -142,6 +142,11 @@ class TestGoogleScraper(unittest.TestCase):
         proxies = ["http://proxy1", "http://proxy2"]
         scraper = GoogleScraper(delay=0, proxies=proxies)
 
+    def test_search_captcha_detection_retries_then_raises(self, mock_get):
+        """A CAPTCHA response should trigger retries and ultimately raise an error."""
+        proxies = ["http://proxy1", "http://proxy2"]
+        scraper = GoogleScraper(delay=0, proxies=proxies)
+
         mock_response = Mock()
         mock_response.text = "<html>Our systems have detected unusual traffic from your computer network.</html>"
         mock_response.status_code = 503
@@ -150,7 +155,10 @@ class TestGoogleScraper(unittest.TestCase):
 
         with self.assertRaises(CaptchaDetectedError):
             scraper.search("test query", 1)
+            scraper.search("test query", 1)
 
+        self.assertEqual(mock_get.call_count, len(proxies))
+        mock_response.raise_for_status.assert_not_called()
         self.assertEqual(mock_get.call_count, len(proxies))
         mock_response.raise_for_status.assert_not_called()
 
@@ -192,7 +200,7 @@ def test_search_consent_page_triggers_captcha(consent_page_html: str):
     """The scraper should surface consent flows as CAPTCHA detections."""
     scraper = GoogleScraper(delay=0)
     mock_response = Mock()
-    mock_response.text = consent_page_html
+    mock_response.text = html_snippet
     mock_response.raise_for_status.return_value = None
 
     with patch("gsearch.requests.Session.get", return_value=mock_response):
@@ -239,6 +247,16 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(payload["query"], "test")
         self.assertEqual(len(payload["results"]), 1)
         mock_search.assert_called_once_with("test", num_results=1)
+
+    @patch.object(api_app.scraper, "search", side_effect=CaptchaDetectedError("Blocked"))
+    def test_search_endpoint_handles_captcha(self, mock_search):
+        response = asyncio.run(self.client.get("/search", params={"query": "captcha", "num_results": 1}))
+        self.assertEqual(response.status_code, 503)
+        payload = response.json()
+        self.assertEqual(payload["query"], "captcha")
+        self.assertEqual(payload["error"], "captcha_detected")
+        self.assertIn("Blocked", payload["detail"])
+        mock_search.assert_called_once_with("captcha", num_results=1)
 
 
 if __name__ == "__main__":

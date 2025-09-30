@@ -7,6 +7,7 @@ A simple Python script to scrape Google search results.
 import requests
 from bs4 import BeautifulSoup
 import time
+import unicodedata
 import urllib.parse
 from itertools import cycle
 from typing import Dict, Iterator, List, Optional, Sequence
@@ -205,10 +206,13 @@ class GoogleScraper:
             "detected unusual traffic from your computer network",
             "controleer of je geen robot bent",
             "ik ben geen robot",
+            "controleer of je geen robot bent",
+            "ik ben geen robot",
         ]
 
         consent_indicators = [
             "consent.google.com",
+            "consent.google.nl",
             "consent.google.nl",
             "before you continue to google search",
             "voordat u doorgaat naar google zoeken",
@@ -242,7 +246,9 @@ class GoogleScraper:
         )
         return any(
             any(indicator in space for indicator in indicator_set)
+            any(indicator in space for indicator in indicator_set)
             for indicator_set in indicator_sets
+            for space in search_spaces
             for space in search_spaces
         )
 
