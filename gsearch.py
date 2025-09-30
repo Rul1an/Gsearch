@@ -91,15 +91,15 @@ class GoogleScraper:
                 response = self.session.get(url, proxies=proxies_arg)
                 
                 html = response.text
-               if self._is_captcha_page(html):
+                if self._is_captcha_page(html):
+                    attempts += 1
                     if attempts >= max_attempts:
                         raise CaptchaDetectedError("Google returned a CAPTCHA challenge; automated access was blocked.")
                     if proxies_arg:
                         print(f"Proxy {proxy} encountered a CAPTCHA challenge. Retrying...")
                     else:
                         print("CAPTCHA challenge detected. Retrying...")
-                        attempts += 1
-                continue
+                    continue
 
                 response.raise_for_status()
                 break # Success
@@ -190,21 +190,36 @@ class GoogleScraper:
             return False
 
         lower_html = html.lower()
+        import unicodedata
+        normalized_html = unicodedata.normalize("NFKD", html)
+        normalized_lower_html = "".join(
+            ch for ch in normalized_html if not unicodedata.combining(ch)
+        ).lower()
+
+        search_spaces = (lower_html, normalized_lower_html)
+
         captcha_indicators = [
             "our systems have detected unusual traffic",
             "to continue, please type the characters",
             "verify that you are not a robot",
             "detected unusual traffic from your computer network",
+            "controleer of je geen robot bent",
+            "ik ben geen robot",
         ]
 
         consent_indicators = [
             "consent.google.com",
-            "consent.google.com/save",
+            "consent.google.nl",
             "before you continue to google search",
             "voordat u doorgaat naar google zoeken",
             "voordat je verdergaat naar google zoeken",
             "avant de continuer vers la recherche google",
             "bevor sie mit der google-suche fortfahren",
+        ]
+
+        localized_consent_indicators = [
+            "voordat je verdergaat naar google zoeken",
+            "ga verder naar google zoeken",
         ]
 
         recaptcha_markers = [
@@ -213,20 +228,16 @@ class GoogleScraper:
             "recaptcha/api.js",
         ]
 
-        structural_indicators = [
-            "<form action=\"https://consent.google.com/save\"",
-            "<form action=\"https://www.google.com/sorry/index\"",
-        ]
-
         indicator_sets = (
             captcha_indicators,
             consent_indicators,
+            localized_consent_indicators,
             recaptcha_markers,
-            structural_indicators,
         )
         return any(
-            any(indicator in lower_html for indicator in indicator_set)
+            any(indicator in space for indicator in indicator_set)
             for indicator_set in indicator_sets
+            for space in search_spaces
         )
 
 
