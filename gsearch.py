@@ -228,11 +228,17 @@ class GoogleScraper:
             "recaptcha/api.js",
         ]
 
+        structural_indicators = [
+            '<form action="https://consent.google.com/save"',
+            '<form action="https://www.google.com/sorry/index"',
+        ]
+
         indicator_sets = (
             captcha_indicators,
             consent_indicators,
             localized_consent_indicators,
             recaptcha_markers,
+            structural_indicators,
         )
         return any(
             any(indicator in space for indicator in indicator_set)
