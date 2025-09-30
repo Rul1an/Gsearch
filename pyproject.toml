@@ -1,0 +1,15 @@
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "W", "B", "I"]
+ignore = ["E501"]
+exclude = [
+    ".git",
+    "__pycache__",
+    "venv",
+    ".venv",
+]
+src = ["."]
