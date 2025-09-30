@@ -1,7 +1,8 @@
 """FastAPI app exposing the GoogleScraper via HTTP."""
 
 import logging
-from typing import List
+import os
+from typing import List, Sequence
 
 from fastapi import FastAPI, Query, status
 from fastapi.responses import JSONResponse
@@ -22,7 +23,29 @@ class SearchResponse(BaseModel):
 
 
 s_logger = logging.getLogger("gsearch.app")
-scraper = GoogleScraper()
+
+
+def _split_env_list(value: str | None) -> List[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def build_scraper_from_env() -> GoogleScraper:
+    delay_raw = os.getenv("GSEARCH_DELAY", "1.0")
+    try:
+        delay = max(float(delay_raw), 0.0)
+    except ValueError:
+        s_logger.warning("Invalid GSEARCH_DELAY='%s'; falling back to 1.0", delay_raw)
+        delay = 1.0
+
+    proxies = _split_env_list(os.getenv("GSEARCH_PROXIES"))
+    user_agents: Sequence[str] = _split_env_list(os.getenv("GSEARCH_USER_AGENTS"))
+
+    return GoogleScraper(delay=delay, proxies=proxies, user_agents=user_agents)
+
+
+scraper = build_scraper_from_env()
 app = FastAPI(title="Gsearch", description="Google scraping API", version="1.0.0")
 
 

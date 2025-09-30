@@ -4,6 +4,7 @@ Google Search Scraper for WBSO webcrawler
 A simple Python script to scrape Google search results.
 """
 
+import logging
 import requests
 from bs4 import BeautifulSoup
 import time
@@ -11,6 +12,8 @@ import unicodedata
 import urllib.parse
 from itertools import cycle
 from typing import Dict, Iterator, List, Optional, Sequence
+
+logger = logging.getLogger("gsearch.scraper")
 
 
 class CaptchaDetectedError(Exception):
@@ -58,6 +61,18 @@ class GoogleScraper:
             return None
         return next(self._proxy_cycle)
 
+    def _apply_backoff(self, attempt_number: int) -> None:
+        """Apply exponential backoff before retrying a request."""
+        if self.delay <= 0:
+            return
+
+        sleep_seconds = min(self.delay * (2 ** max(attempt_number - 1, 0)), 30)
+        if sleep_seconds <= 0:
+            return
+
+        logger.debug("Backing off for %.2f seconds before retrying", sleep_seconds)
+        time.sleep(sleep_seconds)
+
     def search(self, query: str, num_results: int = 10) -> List[Dict[str, str]]:
         """
         Perform a Google search and return the results.
@@ -97,9 +112,14 @@ class GoogleScraper:
                     if attempts >= max_attempts:
                         raise CaptchaDetectedError("Google returned a CAPTCHA challenge; automated access was blocked.")
                     if proxies_arg:
-                        print(f"Proxy {proxy} encountered a CAPTCHA challenge. Retrying...")
+                        logger.warning(
+                            "Proxy %s encountered a CAPTCHA challenge. Retrying...",
+                            proxy,
+                        )
                     else:
-                        print("CAPTCHA challenge detected. Retrying...")
+                        logger.warning("CAPTCHA challenge detected. Retrying...")
+
+                    self._apply_backoff(attempts)
                     continue
 
                 response.raise_for_status()
@@ -108,13 +128,14 @@ class GoogleScraper:
                 raise # Propagate CAPTCHA error immediately
             except requests.RequestException as e:
                 attempts += 1
+                self._apply_backoff(attempts)
                 if proxies_arg:
-                    print(f"Proxy {proxy} failed with error: {e}")
+                    logger.error("Proxy %s failed with error: %s", proxy, e)
                     if attempts >= max_attempts:
-                        print("All proxies failed.")
+                        logger.error("All proxies failed.")
                         return results
                 else:
-                    print(f"Error making request: {e}")
+                    logger.error("Error making request: %s", e)
                     return results
 
         if response is None:
@@ -158,7 +179,7 @@ class GoogleScraper:
             time.sleep(self.delay)
             
         except Exception as e:
-            print(f"Error parsing results: {e}")
+            logger.exception("Error parsing results: %s", e)
 
         return results
     
@@ -191,7 +212,6 @@ class GoogleScraper:
             return False
 
         lower_html = html.lower()
-        import unicodedata
         normalized_html = unicodedata.normalize("NFKD", html)
         normalized_lower_html = "".join(
             ch for ch in normalized_html if not unicodedata.combining(ch)
@@ -206,13 +226,10 @@ class GoogleScraper:
             "detected unusual traffic from your computer network",
             "controleer of je geen robot bent",
             "ik ben geen robot",
-            "controleer of je geen robot bent",
-            "ik ben geen robot",
         ]
 
         consent_indicators = [
             "consent.google.com",
-            "consent.google.nl",
             "consent.google.nl",
             "before you continue to google search",
             "voordat u doorgaat naar google zoeken",
@@ -246,9 +263,7 @@ class GoogleScraper:
         )
         return any(
             any(indicator in space for indicator in indicator_set)
-            any(indicator in space for indicator in indicator_set)
             for indicator_set in indicator_sets
-            for space in search_spaces
             for space in search_spaces
         )
 

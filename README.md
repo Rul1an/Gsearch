@@ -8,6 +8,7 @@ Een eenvoudige Google search scraper gebouwd in Python om zoekresultaten te verz
 - **Eenvoudige Google zoekopdrachten**: Verzamel zoekresultaten voor elke query
 - **Aanpasbare resultaten**: Stel het aantal gewenste resultaten in
 - **Rate limiting**: Ingebouwde vertraging tussen requests om respectvol te scrapen
+- **Exponentiële backoff**: Automatische vertraging bij CAPTCHA- en netwerkfouten
 - **Gestructureerde output**: Krijg titel, link en snippet voor elk resultaat
 - **Foutafhandeling**: Robuuste error handling voor netwerk- en parsing-problemen
 
@@ -79,6 +80,23 @@ Een eenvoudige healthcheck is beschikbaar via:
 
 ```bash
 curl http://localhost:8000/health
+```
+
+### Configuratie via omgevingsvariabelen
+
+De FastAPI-service kan worden geconfigureerd zonder codewijzigingen:
+
+- `GSEARCH_DELAY`: basisvertraging (in seconden) tussen requests en als startpunt voor backoff. Standaard `1.0`.
+- `GSEARCH_PROXIES`: kommagescheiden lijst met proxy-URL's (bijv. `http://p1:8080,http://p2:8080`).
+- `GSEARCH_USER_AGENTS`: kommagescheiden lijst met user-agent strings die afwisselend worden gebruikt.
+
+Voorbeeld bij gebruik van Render of Docker:
+
+```bash
+export GSEARCH_DELAY=2.5
+export GSEARCH_PROXIES="http://proxy1:8080,http://proxy2:8080"
+export GSEARCH_USER_AGENTS="agent1,agent2,agent3"
+uvicorn app:app --reload
 ```
 
 ## API Referentie
