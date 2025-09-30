@@ -142,6 +142,11 @@ class TestGoogleScraper(unittest.TestCase):
         proxies = ["http://proxy1", "http://proxy2"]
         scraper = GoogleScraper(delay=0, proxies=proxies)
 
+    def test_search_captcha_detection_retries_then_raises(self, mock_get):
+        """A CAPTCHA response should trigger retries and ultimately raise an error."""
+        proxies = ["http://proxy1", "http://proxy2"]
+        scraper = GoogleScraper(delay=0, proxies=proxies)
+
         mock_response = Mock()
         mock_response.text = "<html>Our systems have detected unusual traffic from your computer network.</html>"
         mock_response.status_code = 503
@@ -150,38 +155,48 @@ class TestGoogleScraper(unittest.TestCase):
 
         with self.assertRaises(CaptchaDetectedError):
             scraper.search("test query", 1)
+            scraper.search("test query", 1)
 
+        self.assertEqual(mock_get.call_count, len(proxies))
+        mock_response.raise_for_status.assert_not_called()
         self.assertEqual(mock_get.call_count, len(proxies))
         mock_response.raise_for_status.assert_not_called()
 
 
-@pytest.mark.parametrize(
-    "html_snippet",
-    [
-        """
-        <html>
-            <head><title>Before you continue to Google Search</title></head>
-            <body>
-                <form action="https://consent.google.com/save">
-                    <h1>Before you continue to Google Search</h1>
-                    <div class="g-recaptcha" data-sitekey="test"></div>
-                </form>
-            </body>
-        </html>
-        """,
-        """
-        <html lang="nl">
-            <head><title>Voordat je verdergaat naar Google Zoeken</title></head>
-            <body>
-                <div>Voordat je verdergaat naar Google Zoeken</div>
-                <p>Controleer of je geen robot bent.</p>
-                <script src="https://www.google.com/recaptcha/api.js"></script>
-            </body>
-        </html>
-        """,
-    ],
-)
-def test_search_consent_page_triggers_captcha(html_snippet: str):
+@pytest.fixture
+def consent_page_html() -> str:
+    """HTML snippet representing Google's consent/recaptcha interstitial."""
+    return """
+    <html>
+        <head><title>Before you continue to Google Search</title></head>
+        <body>
+            <form action="https://consent.google.com/save">
+                <h1>Before you continue to Google Search</h1>
+                <div class="g-recaptcha" data-sitekey="test"></div>
+            </form>
+        </body>
+    </html>
+    """
+
+
+@pytest.fixture
+def localized_consent_page_html() -> str:
+    """Localized EU consent page that previously slipped through detection."""
+    return """
+    <html lang="nl">
+        <head><title>Voordat u doorgaat naar Google Zoeken</title></head>
+        <body>
+            <form action="https://consent.google.com/save">
+                <h1>Voordat u doorgaat naar Google Zoeken</h1>
+                <p>Google gebruikt cookies en gegevens om zijn services te leveren.</p>
+                <div class="grecaptcha-badge"></div>
+            </form>
+        </body>
+    </html>
+    """
+
+
+def test_search_consent_page_triggers_captcha(consent_page_html: str):
     """The scraper should surface consent flows as CAPTCHA detections."""
     scraper = GoogleScraper(delay=0)
     mock_response = Mock()
@@ -191,6 +206,18 @@ def test_search_consent_page_triggers_captcha(html_snippet: str):
     with patch("gsearch.requests.Session.get", return_value=mock_response):
         with pytest.raises(CaptchaDetectedError):
             scraper.search("test query", 1)
+
+
+def test_search_localized_consent_page_triggers_captcha(localized_consent_page_html: str):
+    """Localized consent screens should also raise the CAPTCHA error."""
+    scraper = GoogleScraper(delay=0)
+    mock_response = Mock()
+    mock_response.text = localized_consent_page_html
+    mock_response.raise_for_status.return_value = None
+
+    with patch("gsearch.requests.Session.get", return_value=mock_response):
+        with pytest.raises(CaptchaDetectedError):
+            scraper.search("WBSO", 1)
 
 
 class TestAPI(unittest.TestCase):
