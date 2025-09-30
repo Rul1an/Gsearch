@@ -154,6 +154,31 @@ class TestGoogleScraper(unittest.TestCase):
         self.assertEqual(mock_get.call_count, len(proxies))
         mock_response.raise_for_status.assert_not_called()
 
+    @patch("gsearch.time.sleep")
+    @patch("gsearch.random.uniform", return_value=0.4)
+    def test_backoff_uses_jitter_and_cap(self, mock_uniform, mock_sleep):
+        """Backoff should include jitter and respect the configured cap."""
+        scraper = GoogleScraper(delay=1.0, max_backoff_seconds=5.0, backoff_jitter=0.5)
+
+        scraper._apply_backoff(3)
+
+        mock_uniform.assert_called_once_with(0.0, 0.5)
+        mock_sleep.assert_called_once_with(4.4)
+
+    @patch("gsearch.time.sleep")
+    @patch("gsearch.time.monotonic", side_effect=[0.0, 10.0, 20.0, 60.1])
+    def test_rate_limit_enforced(self, mock_monotonic, mock_sleep):
+        """Rate limiting should sleep when the configured budget is exhausted."""
+        scraper = GoogleScraper(delay=0, max_requests_per_minute=2)
+
+        scraper._enforce_rate_limit()
+        scraper._enforce_rate_limit()
+        scraper._enforce_rate_limit()
+
+        mock_sleep.assert_called_once()
+        sleep_value = mock_sleep.call_args[0][0]
+        self.assertAlmostEqual(sleep_value, 40.0)
+
 
 @pytest.fixture
 def consent_page_html() -> str:

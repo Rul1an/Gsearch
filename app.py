@@ -2,13 +2,22 @@
 
 import logging
 import os
-from typing import List, Sequence
+from typing import List, Optional, Sequence
 
 from fastapi import FastAPI, Query, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from gsearch import GoogleScraper, CaptchaDetectedError
+
+
+def _configure_logging() -> None:
+    level_name = os.getenv("GSEARCH_LOG_LEVEL", "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    logging.basicConfig(level=level)
+
+
+_configure_logging()
 
 
 class SearchResult(BaseModel):
@@ -25,7 +34,7 @@ class SearchResponse(BaseModel):
 s_logger = logging.getLogger("gsearch.app")
 
 
-def _split_env_list(value: str | None) -> List[str]:
+def _split_env_list(value: Optional[str]) -> List[str]:
     if not value:
         return []
     return [item.strip() for item in value.split(",") if item.strip()]
@@ -42,7 +51,48 @@ def build_scraper_from_env() -> GoogleScraper:
     proxies = _split_env_list(os.getenv("GSEARCH_PROXIES"))
     user_agents: Sequence[str] = _split_env_list(os.getenv("GSEARCH_USER_AGENTS"))
 
-    return GoogleScraper(delay=delay, proxies=proxies, user_agents=user_agents)
+    max_requests_per_minute: Optional[int]
+    max_requests_raw = os.getenv("GSEARCH_MAX_REQUESTS_PER_MINUTE")
+    if max_requests_raw:
+        try:
+            parsed_max = int(max_requests_raw)
+            max_requests_per_minute = parsed_max if parsed_max > 0 else None
+        except ValueError:
+            s_logger.warning(
+                "Invalid GSEARCH_MAX_REQUESTS_PER_MINUTE='%s'; ignoring",
+                max_requests_raw,
+            )
+            max_requests_per_minute = None
+    else:
+        max_requests_per_minute = None
+
+    max_backoff_seconds = 30.0
+    max_backoff_raw = os.getenv("GSEARCH_MAX_BACKOFF_SECONDS")
+    if max_backoff_raw:
+        try:
+            max_backoff_seconds = max(float(max_backoff_raw), 0.0)
+        except ValueError:
+            s_logger.warning(
+                "Invalid GSEARCH_MAX_BACKOFF_SECONDS='%s'; ignoring",
+                max_backoff_raw,
+            )
+
+    backoff_jitter = 0.5
+    jitter_raw = os.getenv("GSEARCH_BACKOFF_JITTER")
+    if jitter_raw:
+        try:
+            backoff_jitter = max(float(jitter_raw), 0.0)
+        except ValueError:
+            s_logger.warning("Invalid GSEARCH_BACKOFF_JITTER='%s'; ignoring", jitter_raw)
+
+    return GoogleScraper(
+        delay=delay,
+        proxies=proxies,
+        user_agents=user_agents,
+        max_requests_per_minute=max_requests_per_minute,
+        max_backoff_seconds=max_backoff_seconds,
+        backoff_jitter=backoff_jitter,
+    )
 
 
 scraper = build_scraper_from_env()

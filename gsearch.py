@@ -5,13 +5,15 @@ A simple Python script to scrape Google search results.
 """
 
 import logging
+import random
 import requests
 from bs4 import BeautifulSoup
 import time
 import unicodedata
 import urllib.parse
+from collections import deque
 from itertools import cycle
-from typing import Dict, Iterator, List, Optional, Sequence
+from typing import Deque, Dict, Iterator, List, Optional, Sequence
 
 logger = logging.getLogger("gsearch.scraper")
 
@@ -27,7 +29,15 @@ class GoogleScraper:
     A simple Google search scraper that extracts search results.
     """
     
-    def __init__(self, delay: float = 1.0, proxies: Optional[List[str]] = None, user_agents: Optional[Sequence[str]] = None):
+    def __init__(
+        self,
+        delay: float = 1.0,
+        proxies: Optional[List[str]] = None,
+        user_agents: Optional[Sequence[str]] = None,
+        max_requests_per_minute: Optional[int] = None,
+        max_backoff_seconds: float = 30.0,
+        backoff_jitter: float = 0.5,
+    ):
         """
         Initialize the Google scraper.
 
@@ -35,6 +45,9 @@ class GoogleScraper:
             delay: Delay between requests in seconds (default: 1.0)
             proxies: Optional list of proxy URLs to rotate between.
             user_agents: Optional sequence of user-agent strings to rotate per request.
+            max_requests_per_minute: Optional cap on the number of requests per rolling minute window.
+            max_backoff_seconds: Maximum sleep duration during exponential backoff.
+            backoff_jitter: Maximum random jitter (in seconds) added to backoff sleeps.
         """
         self.delay = delay
         self.session = requests.Session()
@@ -43,6 +56,16 @@ class GoogleScraper:
         cleaned_proxies = [proxy for proxy in (proxies or []) if proxy]
         self._proxies = cleaned_proxies
         self._proxy_cycle: Optional[Iterator[str]] = cycle(cleaned_proxies) if cleaned_proxies else None
+
+        # Rate limiting
+        if max_requests_per_minute is not None and max_requests_per_minute <= 0:
+            max_requests_per_minute = None
+        self.max_requests_per_minute = max_requests_per_minute
+        self._request_timestamps: Deque[float] = deque()
+
+        # Backoff configuration
+        self.max_backoff_seconds = max(max_backoff_seconds, 0.0)
+        self.backoff_jitter = max(backoff_jitter, 0.0)
 
         # User-agent setup
         self.default_user_agent = (
@@ -66,14 +89,50 @@ class GoogleScraper:
         if self.delay <= 0:
             return
 
-        sleep_seconds = min(self.delay * (2 ** max(attempt_number - 1, 0)), 30)
+        base_delay = self.delay * (2 ** max(attempt_number - 1, 0))
+        jitter = random.uniform(0.0, self.backoff_jitter) if self.backoff_jitter > 0 else 0.0
+        if self.max_backoff_seconds > 0:
+            sleep_seconds = min(base_delay + jitter, self.max_backoff_seconds)
+        else:
+            sleep_seconds = base_delay + jitter
         if sleep_seconds <= 0:
             return
 
         logger.debug("Backing off for %.2f seconds before retrying", sleep_seconds)
         time.sleep(sleep_seconds)
 
+    def _prune_request_timestamps(self, current_time: float) -> None:
+        """Remove timestamps that are outside the rolling one-minute window."""
+        window = 60.0
+        while self._request_timestamps and current_time - self._request_timestamps[0] >= window:
+            self._request_timestamps.popleft()
+
+    def _enforce_rate_limit(self) -> None:
+        """Sleep when the configured rate limit would be exceeded."""
+        if not self.max_requests_per_minute:
+            return
+
+        window = 60.0
+        current_time = time.monotonic()
+        self._prune_request_timestamps(current_time)
+
+        if len(self._request_timestamps) >= self.max_requests_per_minute:
+            earliest = self._request_timestamps[0]
+            sleep_seconds = window - (current_time - earliest)
+            if sleep_seconds > 0:
+                logger.debug(
+                    "Rate limit reached (%s/min). Sleeping for %.2f seconds",
+                    self.max_requests_per_minute,
+                    sleep_seconds,
+                )
+                time.sleep(sleep_seconds)
+                current_time = time.monotonic()
+                self._prune_request_timestamps(current_time)
+
+        self._request_timestamps.append(current_time)
+
     def search(self, query: str, num_results: int = 10) -> List[Dict[str, str]]:
+        logger.info("Start search: query='%s', num_results=%d", query, num_results)
         """
         Perform a Google search and return the results.
         
@@ -100,14 +159,18 @@ class GoogleScraper:
         if self._user_agent_iter is not None:
             self.session.headers['User-Agent'] = next(self._user_agent_iter)
 
+        proxy = None
         while attempts < max_attempts:
+            logger.debug("Search attempt %d/%d (proxy=%s, user-agent=%s)", attempts+1, max_attempts, proxy, self.session.headers.get('User-Agent'))
             proxy = self._get_next_proxy() if self._proxies else None
             proxies_arg = {'http': proxy, 'https': proxy} if proxy else None
             try:
+                self._enforce_rate_limit()
                 response = self.session.get(url, proxies=proxies_arg)
                 
                 html = response.text
                 if self._is_captcha_page(html):
+                    logger.warning("CAPTCHA/consent page detected for query '%s' (proxy=%s)", query, proxy)
                     attempts += 1
                     if attempts >= max_attempts:
                         raise CaptchaDetectedError("Google returned a CAPTCHA challenge; automated access was blocked.")
@@ -139,9 +202,11 @@ class GoogleScraper:
                     return results
 
         if response is None:
+            logger.info("No response received for query '%s'", query)
             return results
 
         try:
+            logger.info("Parsing results for query '%s'", query)
             # Parse the HTML
             soup = BeautifulSoup(response.text, 'html.parser')
             
@@ -181,6 +246,7 @@ class GoogleScraper:
         except Exception as e:
             logger.exception("Error parsing results: %s", e)
 
+        logger.info("Search complete: query='%s', results=%d", query, len(results))
         return results
     
     def search_and_print(self, query: str, num_results: int = 10) -> None:

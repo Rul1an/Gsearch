@@ -7,8 +7,27 @@ Een eenvoudige Google search scraper gebouwd in Python om zoekresultaten te verz
 
 - **Eenvoudige Google zoekopdrachten**: Verzamel zoekresultaten voor elke query
 - **Aanpasbare resultaten**: Stel het aantal gewenste resultaten in
-- **Rate limiting**: Ingebouwde vertraging tussen requests om respectvol te scrapen
-- **Exponentiële backoff**: Automatische vertraging bij CAPTCHA- en netwerkfouten
+- **Rate limiting**: Instelbaar maximum aantal requests per minuut
+- **Exponentiële backoff + jitter**: Automatische vertraging bij CAPTCHA- en netwerkfouten, met random jitter om detectie te bemoeilijken
+- **Metrics/logging**: Activiteit en CAPTCHA-detectie worden gelogd
+### Rate limiting, backoff en metrics
+
+De GoogleScraper ondersteunt:
+
+- `max_requests_per_minute`: maximaal aantal requests per minuut (rolling window)
+- `max_backoff_seconds`: maximale backoff-tijd bij retries
+- `backoff_jitter`: maximale random jitter (in seconden) toegevoegd aan backoff
+
+Deze parameters zijn instelbaar via de Python constructor of via een eigen wrapper.
+
+#### Metrics en logging
+
+Alle scraping-activiteit, rate limiting, CAPTCHA-detectie en parsingfouten worden gelogd via Python logging. Pas het logniveau aan voor meer of minder detail:
+
+```python
+import logging
+logging.basicConfig(level=logging.INFO)
+```
 - **Gestructureerde output**: Krijg titel, link en snippet voor elk resultaat
 - **Foutafhandeling**: Robuuste error handling voor netwerk- en parsing-problemen
 
@@ -89,6 +108,10 @@ De FastAPI-service kan worden geconfigureerd zonder codewijzigingen:
 - `GSEARCH_DELAY`: basisvertraging (in seconden) tussen requests en als startpunt voor backoff. Standaard `1.0`.
 - `GSEARCH_PROXIES`: kommagescheiden lijst met proxy-URL's (bijv. `http://p1:8080,http://p2:8080`).
 - `GSEARCH_USER_AGENTS`: kommagescheiden lijst met user-agent strings die afwisselend worden gebruikt.
+- `GSEARCH_MAX_REQUESTS_PER_MINUTE`: maximaal aantal requests per rollend minuutvenster (bijv. `30`).
+- `GSEARCH_MAX_BACKOFF_SECONDS`: bovengrens voor backoff-slaap (bijv. `20`).
+- `GSEARCH_BACKOFF_JITTER`: maximale jitter (in seconden) die aan backoff wordt toegevoegd (bijv. `0.75`).
+- `GSEARCH_LOG_LEVEL`: logniveau voor de scraper en API (`DEBUG`, `INFO`, `WARNING`, ...). Standaard `INFO`.
 
 Voorbeeld bij gebruik van Render of Docker:
 
@@ -96,6 +119,10 @@ Voorbeeld bij gebruik van Render of Docker:
 export GSEARCH_DELAY=2.5
 export GSEARCH_PROXIES="http://proxy1:8080,http://proxy2:8080"
 export GSEARCH_USER_AGENTS="agent1,agent2,agent3"
+export GSEARCH_MAX_REQUESTS_PER_MINUTE=30
+export GSEARCH_MAX_BACKOFF_SECONDS=20
+export GSEARCH_BACKOFF_JITTER=0.75
+export GSEARCH_LOG_LEVEL=INFO
 uvicorn app:app --reload
 ```
 
